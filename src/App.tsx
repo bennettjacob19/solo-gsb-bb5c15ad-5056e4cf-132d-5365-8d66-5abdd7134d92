@@ -3,6 +3,7 @@ import type { AppState, PriorityLevel, Constraint, TimeObservation, TEvent } fro
 import { analyze, traceBound } from './lib/graph'
 import { findMinimalRepairs } from './lib/repair'
 import { computeMinDeviationSchedule } from './lib/schedule'
+import { auditRedundancy } from './lib/audit'
 import {
   buildConsistentSample,
   buildContradictionSample,
@@ -72,6 +73,14 @@ export default function App() {
   }, [events, effectiveConstraints, observations, previewOffIds, result])
 
   const hasObservations = result.baseISO !== null
+
+  // —— 冗余证词审计：系统可满足时逐条暂时排除一条已启用相对约束，基于其余约束与
+  //    全部观测重推该证词两端的最紧时间差区间；矛盾时返回 null（面板显示暂停提示）。
+  //    基于有效约束（含修复预览），任何编辑/批量导入都触发实时重算；审计为只读，不写存档 ——
+  const redundancyAudit = useMemo(
+    () => auditRedundancy(events, effectiveConstraints, observations),
+    [events, effectiveConstraints, observations],
+  )
 
   // —— 分层最小偏差排程：仅在有效系统可满足且存在观测（时间原点已锚定）时计算；
   //    编辑约束、观测、期望值或优先级都会触发实时重算，矛盾时返回 null（不展示旧结果）——
@@ -511,6 +520,7 @@ export default function App() {
           cycleConstraintIds={cycleConstraintIds}
           traceConstraintIds={traceConstraintIds}
           previewOffIds={previewOffIds}
+          redundancyAudit={redundancyAudit}
           onAdd={addConstraint}
           onRemove={removeConstraint}
           onUpdate={updateConstraint}
@@ -573,6 +583,7 @@ export default function App() {
         旧版单一锚点存档会自动迁移为一条精确观测 ·
         停用某条相对约束可即时验证“去掉该证词后矛盾是否消除” ·
         观测的新增、编辑、删除与其他任何编辑一样实时重算并持久化；观测作为事实记录不参与修复停用 ·
+        冗余证词审计为只读分析，不改写约束与本地存档 ·
         批量证词导入先解析为只读预览，任何一行有错都禁止写入，确认后一次性合并（不覆盖现有数据）
       </div>
     </div>

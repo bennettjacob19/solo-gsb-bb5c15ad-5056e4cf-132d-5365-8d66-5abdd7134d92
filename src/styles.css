@@ -791,6 +791,53 @@ table.windows tr.traced td {
   color: var(--ok);
 }
 
+/* ---------- 冗余证词审计 ---------- */
+.audit-block {
+  margin-top: 14px;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+.audit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.audit-head h4 {
+  margin: 0;
+  font-size: 13.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.audit-head h4 .count {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 12px;
+}
+.audit-filters {
+  display: flex;
+  gap: 6px;
+}
+.badge.redundant {
+  background: var(--ok-bg);
+  color: var(--ok);
+  border: 1px solid rgba(63, 185, 80, 0.6);
+}
+.badge.necessary {
+  background: rgba(139, 149, 159, 0.15);
+  color: #9aa7b3;
+  border: 1px solid var(--border-strong);
+}
+.audit-note {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 /* ---------- 最小偏差排程 ---------- */
 .schedule-note {
   border-radius: 6px;

@@ -10,6 +10,7 @@ import App from '../src/App'
 import WindowsTable from '../src/components/WindowsTable'
 import CyclePanel from '../src/components/CyclePanel'
 import ObservationEditor from '../src/components/ObservationEditor'
+import AuditPanel from '../src/components/AuditPanel'
 import { analyze, traceBound } from '../src/lib/graph'
 import { buildConsistentSample } from '../src/lib/samples'
 
@@ -50,6 +51,34 @@ check(appHtml, '达到 ±D', '分层最小偏差排程')
 check(appHtml, '层级', '分层最小偏差排程')
 check(appHtml, '已定时', '分层最小偏差排程')
 check(appHtml, '未定时', '分层最小偏差排程')
+
+// 1b2) 冗余证词审计（默认示例 7 条启用证词全部必要；推导区间、结论与筛选渲染）
+check(appHtml, '冗余证词审计', '冗余审计')
+check(appHtml, '推导区间（排除该证词后）', '冗余审计')
+check(appHtml, '证词区间', '冗余审计')
+check(appHtml, '冗余 0 · 必要 7', '冗余审计：计数')
+check(appHtml, '全部 7', '冗余审计：全部筛选')
+check(appHtml, '冗余 0', '冗余审计：冗余筛选')
+check(appHtml, '必要 7', '冗余审计：必要筛选')
+check(appHtml, '>必要<', '冗余审计：必要结论徽章')
+check(appHtml, '不修改任何约束，也不写入本地存档', '冗余审计：只读说明')
+// 示例中「复盘 晚于 恢复」是唯一连接，排除后双侧无界
+check(appHtml, '[−∞, +∞] 分钟', '冗余审计：无界区间展示')
+// 「恢复 晚于 告警 8~20」排除后推导 [10, 25]
+check(appHtml, '[10, 25] 分钟', '冗余审计：推导区间数值')
+
+// 矛盾状态：审计面板显示暂停提示
+const sAudit = buildConsistentSample()
+const auditNullHtml = renderToString(
+  h(AuditPanel, { events: sAudit.events, constraints: sAudit.constraints, audit: null }),
+)
+check(auditNullHtml, '冗余证词审计', '冗余审计暂停：标题仍在')
+check(auditNullHtml, '冗余证词审计已暂停', '冗余审计暂停：矛盾提示')
+check(auditNullHtml, '恢复可满足后审计自动重算', '冗余审计暂停：自动重算说明')
+
+// 空状态：没有已启用约束时提示停用的约束不参与
+const auditEmptyHtml = renderToString(h(AuditPanel, { events: [], constraints: [], audit: [] }))
+check(auditEmptyHtml, '没有已启用的相对约束可审计（停用的约束不参与审计）', '冗余审计：空态提示')
 
 // 1c) 观测编辑器可独立渲染
 const s0 = buildConsistentSample()

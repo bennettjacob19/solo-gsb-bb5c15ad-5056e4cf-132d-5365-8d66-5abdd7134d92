@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import type { Constraint, Relation, TEvent } from '../types'
+import type { Constraint, RedundancyAuditEntry, Relation, TEvent } from '../types'
+import AuditPanel from './AuditPanel'
 
 interface Props {
   events: TEvent[]
@@ -9,6 +10,8 @@ interface Props {
   traceConstraintIds?: Set<string>
   /** 修复预览中临时停用的约束 id（不写入 localStorage） */
   previewOffIds?: Set<string> | null
+  /** 冗余证词审计结果（按约束录入顺序）；系统矛盾时为 null（暂停审计） */
+  redundancyAudit: RedundancyAuditEntry[] | null
   onAdd: (c: Omit<Constraint, 'id'>) => void
   onRemove: (id: string) => void
   onUpdate: (id: string, patch: Partial<Constraint>) => void
@@ -20,6 +23,7 @@ export default function ConstraintEditor({
   cycleConstraintIds,
   traceConstraintIds,
   previewOffIds,
+  redundancyAudit,
   onAdd,
   onRemove,
   onUpdate,
@@ -192,6 +196,9 @@ export default function ConstraintEditor({
           </button>
         </div>
       )}
+
+      {/* 冗余证词审计：逐条排除一条已启用约束重推证词区间（只读，不改写约束与存档） */}
+      <AuditPanel events={events} constraints={constraints} audit={redundancyAudit} />
     </div>
   )
 }

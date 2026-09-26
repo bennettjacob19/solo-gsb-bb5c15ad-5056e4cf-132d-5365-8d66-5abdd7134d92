@@ -225,8 +225,8 @@ function extractCycle(lastEdge: DiffEdge, predEdge: (DiffEdge | null)[]): {
   return { nodes: cycleNodes, edges: cycleEdges }
 }
 
-/** 从单个源点求最短路距离；不可达为 +∞ */
-function shortestFrom(source: number, m: number, edges: DiffEdge[]): number[] {
+/** 从单个源点求最短路距离；不可达为 +∞（冗余审计等调用方按无界处理） */
+export function shortestFrom(source: number, m: number, edges: DiffEdge[]): number[] {
   const init = new Array(m).fill(INF)
   init[source] = 0
   const { dist } = bellmanFord(m, edges, init)

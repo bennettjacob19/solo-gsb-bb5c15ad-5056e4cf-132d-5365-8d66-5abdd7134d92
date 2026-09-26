@@ -62,3 +62,11 @@ export function describeObservation(
   if (!o.end || o.end === o.start) return `「${name}」发生于 ${s}（精确时刻）`
   return `「${name}」发生于 ${s} ~ ${formatFullDateTime(o.end)}`
 }
+
+/** 冗余审计的推导区间展示：[lo, hi] 分钟；null 侧为无界（−∞ / +∞） */
+export function formatDerivedRange(lo: number | null, hi: number | null): string {
+  const fmt = (v: number) => (v < 0 ? `−${Math.abs(v)}` : String(v))
+  const l = lo === null ? '−∞' : fmt(lo)
+  const h = hi === null ? '+∞' : fmt(hi)
+  return `[${l}, ${h}] 分钟`
+}

@@ -255,3 +255,30 @@ export interface RepairSearchResult {
    */
   observationConflict: boolean
 }
+
+/**
+ * 冗余证词审计：对一条已启用相对约束的审计结果。
+ *
+ * 暂时排除该约束后，基于其余启用约束与全部绝对时间观测，在同一张差分图上
+ * 重新推导证词两端事件的最紧时间差区间 [derivedLo, derivedHi]
+ * （即 t[xIdx] − t[yIdx]，分钟）；推导区间完整落在原证词区间 [min, max] 内时
+ * 结论为「冗余」（该证词不提供新的约束作用），否则为「必要」。
+ * 某方向不可达时该侧按无界处理（null，即 −∞ / +∞）。
+ */
+export interface RedundancyAuditEntry {
+  /** 被审计的约束 id */
+  constraintId: string
+  /** 证词区间两端的事件下标：证词断言 min ≤ t[xIdx] − t[yIdx] ≤ max */
+  xIdx: number
+  yIdx: number
+  /** 原证词区间下界（分钟） */
+  min: number
+  /** 原证词区间上界（分钟） */
+  max: number
+  /** 推导区间下界；该方向不可达时为 null（−∞） */
+  derivedLo: number | null
+  /** 推导区间上界；该方向不可达时为 null（+∞） */
+  derivedHi: number | null
+  /** 结论：true = 冗余（推导区间 ⊆ 证词区间），false = 必要 */
+  redundant: boolean
+}
