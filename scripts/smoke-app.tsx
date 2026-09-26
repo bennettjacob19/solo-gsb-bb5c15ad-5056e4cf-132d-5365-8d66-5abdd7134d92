@@ -10,7 +10,9 @@ import App from '../src/App'
 import WindowsTable from '../src/components/WindowsTable'
 import CyclePanel from '../src/components/CyclePanel'
 import ObservationEditor from '../src/components/ObservationEditor'
+import AuditPanel from '../src/components/AuditPanel'
 import { analyze, traceBound } from '../src/lib/graph'
+import { auditRedundancy } from '../src/lib/audit'
 import { buildConsistentSample } from '../src/lib/samples'
 
 let failed = 0
@@ -51,7 +53,18 @@ check(appHtml, '层级', '分层最小偏差排程')
 check(appHtml, '已定时', '分层最小偏差排程')
 check(appHtml, '未定时', '分层最小偏差排程')
 
-// 1c) 观测编辑器可独立渲染
+// 1c) 冗余证词审计（默认示例全部证词均为必要；面板展示推导区间、结论徽标与筛选）
+check(appHtml, '冗余证词审计', '冗余证词审计')
+check(appHtml, '排除后推导时差', '冗余证词审计')
+check(appHtml, '共 7 条启用约束参与审计', '冗余证词审计')
+check(appHtml, '必要 7 条', '冗余证词审计')
+check(appHtml, '仅冗余', '冗余证词审计筛选')
+check(appHtml, '仅必要', '冗余证词审计筛选')
+check(appHtml, '不改写约束与本地存档', '冗余证词审计')
+check(appHtml, '+10 ~ +25 分钟', '冗余证词审计：整体约束推导区间')
+check(appHtml, '−12 ~ +12 分钟', '冗余证词审计：首条约束推导区间')
+
+// 1d) 观测编辑器可独立渲染
 const s0 = buildConsistentSample()
 const obsHtml = renderToString(
   h(ObservationEditor, {
@@ -144,6 +157,42 @@ if (cr.cycle) {
   failed++
   console.error('SMOKE FAIL: 构造的观测-约束混合矛盾未被检出')
 }
+
+// 4) 冗余证词审计面板：冗余结论 / 无界推导区间 / 矛盾暂停提示
+const auditEvents = [
+  { id: 'x', name: 'X' },
+  { id: 'y', name: 'Y' },
+]
+const auditConstraints = [
+  { id: 'c1', aId: 'y', bId: 'x', relation: 'later' as const, min: 20, max: 40, enabled: true },
+]
+const auditObs = [
+  { id: 'o1', eventId: 'x', start: '2026-01-01T08:00', end: '2026-01-01T08:00' },
+  { id: 'o2', eventId: 'y', start: '2026-01-01T08:30', end: '2026-01-01T08:30' },
+]
+// 两条精确观测钉死 t_Y − t_X = 30 ∈ [20,40] → 证词冗余
+const redundantAudit = auditRedundancy(auditEvents, auditConstraints, auditObs)
+const redundantHtml = renderToString(
+  h(AuditPanel, { events: auditEvents, constraints: auditConstraints, audit: redundantAudit }),
+)
+check(redundantHtml, '冗余', '审计面板：冗余结论')
+check(redundantHtml, '+30 ~ +30 分钟', '审计面板：推导区间退化为单点')
+check(redundantHtml, '冗余 1 条', '审计面板：冗余计数')
+
+// 无观测时排除唯一约束 → 两侧无界，判必要
+const unboundedAudit = auditRedundancy(auditEvents, auditConstraints, [])
+const unboundedHtml = renderToString(
+  h(AuditPanel, { events: auditEvents, constraints: auditConstraints, audit: unboundedAudit }),
+)
+check(unboundedHtml, '−∞ ~ +∞ 分钟', '审计面板：无界推导区间')
+check(unboundedHtml, '（含无界侧）', '审计面板：无界标注')
+check(unboundedHtml, '必要', '审计面板：无界判必要')
+
+// 矛盾状态：显示暂停审计提示
+const pausedHtml = renderToString(
+  h(AuditPanel, { events: auditEvents, constraints: auditConstraints, audit: null }),
+)
+check(pausedHtml, '冗余证词审计已暂停', '审计面板：矛盾暂停提示')
 
 if (failed > 0) process.exit(1)
 console.log('smoke ok')

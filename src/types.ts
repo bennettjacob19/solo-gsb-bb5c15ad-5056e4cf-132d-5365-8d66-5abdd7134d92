@@ -230,6 +230,26 @@ export interface RepairPlan {
   windows: Map<number, WindowInfo>
 }
 
+/** 冗余证词审计的结论：冗余（其余约束与全部观测已蕴含该证词）或必要（提供独立信息） */
+export type AuditVerdict = 'redundant' | 'necessary'
+
+/**
+ * 冗余证词审计条目：系统可满足时，暂时排除一条已启用相对约束，
+ * 基于其余约束与全部观测重新推导该证词两端事件的最紧时间差区间。
+ * 差值方向与证词一致：d = t_to − t_from（earlier：to=B、from=A；later：to=A、from=B），
+ * 证词声称 d ∈ [min, max]；推导区间完整落在 [min, max] 内 → 冗余，否则 → 必要。
+ */
+export interface AuditEntry {
+  /** 被审计的约束 id */
+  constraintId: string
+  /** 排除该约束后推导出的差值下界（分钟）；下界不可达（按无界处理）为 null（−∞） */
+  derivedMin: number | null
+  /** 排除该约束后推导出的差值上界（分钟）；上界不可达（按无界处理）为 null（+∞） */
+  derivedMax: number | null
+  /** 审计结论 */
+  verdict: AuditVerdict
+}
+
 /** 最小修复搜索结果 */
 export interface RepairSearchResult {
   /** 是否找到至少一个可满足修复方案 */

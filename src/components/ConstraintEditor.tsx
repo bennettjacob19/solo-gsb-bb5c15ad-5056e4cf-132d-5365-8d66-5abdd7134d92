@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import type { Constraint, Relation, TEvent } from '../types'
+import type { AuditEntry, Constraint, Relation, TEvent } from '../types'
+import AuditPanel from './AuditPanel'
 
 interface Props {
   events: TEvent[]
@@ -9,6 +10,8 @@ interface Props {
   traceConstraintIds?: Set<string>
   /** 修复预览中临时停用的约束 id（不写入 localStorage） */
   previewOffIds?: Set<string> | null
+  /** 冗余证词审计结果（null = 系统矛盾，审计暂停）；停用的约束不参与审计 */
+  audit: AuditEntry[] | null
   onAdd: (c: Omit<Constraint, 'id'>) => void
   onRemove: (id: string) => void
   onUpdate: (id: string, patch: Partial<Constraint>) => void
@@ -20,6 +23,7 @@ export default function ConstraintEditor({
   cycleConstraintIds,
   traceConstraintIds,
   previewOffIds,
+  audit,
   onAdd,
   onRemove,
   onUpdate,
@@ -34,6 +38,12 @@ export default function ConstraintEditor({
     const m = new Map(events.map((e) => [e.id, e.name]))
     return (id: string) => m.get(id) ?? '（已删除事件）'
   }, [events])
+
+  // 约束 id -> 审计条目（用于在约束行内标注冗余/必要结论；null 表示审计暂停）
+  const auditById = useMemo(
+    () => new Map((audit ?? []).map((e) => [e.constraintId, e])),
+    [audit],
+  )
 
   const minNum = Number(min)
   const maxNum = Number(max)
@@ -65,6 +75,7 @@ export default function ConstraintEditor({
         const inCycle = cycleConstraintIds.has(c.id)
         const inTrace = traceConstraintIds?.has(c.id) ?? false
         const previewOff = previewOffIds?.has(c.id) ?? false
+        const auditEntry = auditById.get(c.id)
         return (
           <div
             key={c.id}
@@ -133,6 +144,18 @@ export default function ConstraintEditor({
             <div className="constraint-text">
               读作：「{nameOf(c.aId)}」{c.relation === 'earlier' ? '早于' : '晚于'}「{nameOf(c.bId)}」{' '}
               {c.min === c.max ? c.min : `${c.min}~${c.max}`} 分钟
+              {auditEntry && (
+                <span
+                  className={`badge audit-${auditEntry.verdict}`}
+                  title={
+                    auditEntry.verdict === 'redundant'
+                      ? '冗余证词审计：其余约束与全部观测已能推出不弱于该证词的时差区间'
+                      : '冗余证词审计：排除该证词后推导区间超出其声称范围，该证词提供了独立信息'
+                  }
+                >
+                  {auditEntry.verdict === 'redundant' ? '冗余' : '必要'}
+                </span>
+              )}
               {inCycle && '　← 属于矛盾环'}
               {inTrace && '　← 属于边界追溯链'}
               {previewOff && '　← 预览停用（未保存）'}
@@ -192,6 +215,9 @@ export default function ConstraintEditor({
           </button>
         </div>
       )}
+
+      {/* 冗余证词审计：复用本列表的约束与差分图，只读展示推导区间与结论 */}
+      <AuditPanel events={events} constraints={constraints} audit={audit} />
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { analyze, buildEdges, buildSystem, constraintToEdges, traceBound } from '../src/lib/graph'
+import { auditRedundancy } from '../src/lib/audit'
 import { DEFAULT_STATE_LIMIT, findMinimalRepairs, MAX_PLANS } from '../src/lib/repair'
 import { computeMinDeviationSchedule } from '../src/lib/schedule'
 import { buildConsistentSample, buildContradictionSample } from '../src/lib/samples'
@@ -1162,5 +1163,162 @@ function scheduleFeasible(
   assert(ana.satisfiable && ana.baseISO === '2026-01-01T08:00', 'DSL：导入结果接入统一差分图')
 }
 
+// ==================== 冗余证词审计 ====================
+
+// ---- 链式蕴含：被其余约束推出的证词标为冗余；边界相等也算落在区间内 ----
+{
+  // c1: Y 比 X 晚 5~10；c2: Z 比 Y 晚 5~10；c3: Z 比 X 晚 10~20；c4: Z 比 X 晚 12~18
+  // 排除 c3 后由 c1+c2+c4 推出 t_Z − t_X ∈ [12,18] ⊆ [10,20] → 冗余
+  const events: TEvent[] = [
+    { id: 'x', name: 'X' }, { id: 'y', name: 'Y' }, { id: 'z', name: 'Z' },
+  ]
+  const cs: Constraint[] = [
+    { id: 'c1', aId: 'y', bId: 'x', relation: 'later', min: 5, max: 10, enabled: true },
+    { id: 'c2', aId: 'z', bId: 'y', relation: 'later', min: 5, max: 10, enabled: true },
+    { id: 'c3', aId: 'z', bId: 'x', relation: 'later', min: 10, max: 20, enabled: true },
+    { id: 'c4', aId: 'z', bId: 'x', relation: 'later', min: 12, max: 18, enabled: true },
+  ]
+  const entries = auditRedundancy(events, cs, [])
+  assert(entries !== null, '可满足系统返回审计结果')
+  assert(entries!.length === 4, '每条启用约束都有一条审计条目')
+  assert(
+    entries!.map((e) => e.constraintId).join(',') === 'c1,c2,c3,c4',
+    '审计条目顺序与约束录入顺序一致',
+  )
+  const byId = new Map(entries!.map((e) => [e.constraintId, e]))
+  // c1：排除后 t_Y − t_X ∈ [2,13]（由 c2+c3/c4 夹出），超出 [5,10] → 必要
+  assert(byId.get('c1')!.verdict === 'necessary', 'c1 判为必要')
+  assert(byId.get('c1')!.derivedMin === 2 && byId.get('c1')!.derivedMax === 13, 'c1 推导区间 [2,13]')
+  // c2：排除后 t_Z − t_Y ∈ [2,13]，超出 [5,10] → 必要
+  assert(byId.get('c2')!.verdict === 'necessary', 'c2 判为必要')
+  assert(byId.get('c2')!.derivedMin === 2 && byId.get('c2')!.derivedMax === 13, 'c2 推导区间 [2,13]')
+  // c3：推导 [12,18] 完整落在声称 [10,20] 内 → 冗余
+  assert(byId.get('c3')!.verdict === 'redundant', 'c3 被其余约束蕴含，判为冗余')
+  assert(byId.get('c3')!.derivedMin === 12 && byId.get('c3')!.derivedMax === 18, 'c3 推导区间 [12,18]')
+  // c4：排除后 t_Z − t_X ∈ [10,20]，超出 [12,18] → 必要
+  assert(byId.get('c4')!.verdict === 'necessary', 'c4 判为必要')
+  assert(byId.get('c4')!.derivedMin === 10 && byId.get('c4')!.derivedMax === 20, 'c4 推导区间 [10,20]')
+}
+
+// ---- 边界相等也算落入：推导区间与证词区间完全相同 → 冗余 ----
+{
+  const events: TEvent[] = [
+    { id: 'x', name: 'X' }, { id: 'y', name: 'Y' }, { id: 'z', name: 'Z' },
+  ]
+  const cs: Constraint[] = [
+    { id: 'c1', aId: 'y', bId: 'x', relation: 'later', min: 5, max: 10, enabled: true },
+    { id: 'c2', aId: 'z', bId: 'y', relation: 'later', min: 5, max: 10, enabled: true },
+    { id: 'c3', aId: 'z', bId: 'x', relation: 'later', min: 10, max: 20, enabled: true },
+  ]
+  const byId = new Map(auditRedundancy(events, cs, [])!.map((e) => [e.constraintId, e]))
+  // 排除 c3 后由 c1+c2 恰好推出 t_Z − t_X ∈ [10,20]，与证词相同 → 冗余
+  assert(byId.get('c3')!.verdict === 'redundant', '推导区间与证词区间相同也判冗余')
+  assert(byId.get('c3')!.derivedMin === 10 && byId.get('c3')!.derivedMax === 20, 'c3 推导区间 [10,20]')
+}
+
+// ---- 观测参与推导：两条精确观测钉死两端，证词被观测蕴含 → 冗余 ----
+{
+  const events: TEvent[] = [{ id: 'x', name: 'X' }, { id: 'y', name: 'Y' }]
+  const cs: Constraint[] = [
+    { id: 'c1', aId: 'y', bId: 'x', relation: 'later', min: 20, max: 40, enabled: true },
+  ]
+  const obs = [exactObs('o1', 'x', 0), exactObs('o2', 'y', 30)]
+  const entries = auditRedundancy(events, cs, obs)!
+  assert(entries.length === 1, '单条约束一条审计条目')
+  assert(entries[0].verdict === 'redundant', '观测钉死时差 30 ∈ [20,40]，证词判冗余')
+  assert(entries[0].derivedMin === 30 && entries[0].derivedMax === 30, '推导区间退化为 +30 单点')
+}
+
+// ---- 观测推导超出证词声称范围 → 必要 ----
+{
+  const events: TEvent[] = [{ id: 'x', name: 'X' }, { id: 'y', name: 'Y' }]
+  const cs: Constraint[] = [
+    { id: 'c1', aId: 'y', bId: 'x', relation: 'later', min: 30, max: 40, enabled: true },
+  ]
+  // X 精确 0、Y ∈ [+25,+35]：排除证词后推出 t_Y − t_X ∈ [25,35]，下界 25 < 30 → 必要
+  const obs = [exactObs('o1', 'x', 0), { id: 'o2', eventId: 'y', start: isoPlus(25), end: isoPlus(35) }]
+  const entries = auditRedundancy(events, cs, obs)!
+  assert(entries[0].verdict === 'necessary', '推导区间下界越出证词区间，判必要')
+  assert(entries[0].derivedMin === 25 && entries[0].derivedMax === 35, '推导区间 [25,35]')
+}
+
+// ---- 无其他信息：排除后两端不连通，两侧均按无界处理 → 必要 ----
+{
+  const events: TEvent[] = [{ id: 'x', name: 'X' }, { id: 'y', name: 'Y' }]
+  const cs: Constraint[] = [
+    { id: 'c1', aId: 'y', bId: 'x', relation: 'later', min: 5, max: 10, enabled: true },
+  ]
+  const entries = auditRedundancy(events, cs, [])!
+  assert(entries[0].derivedMin === null && entries[0].derivedMax === null, '不可达的边界按无界处理（null）')
+  assert(entries[0].verdict === 'necessary', '无界推导区间不落入侵证词区间 → 必要')
+}
+
+// ---- earlier 方向：差值按 t_B − t_A 推导 ----
+{
+  const events: TEvent[] = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]
+  const cs: Constraint[] = [
+    { id: 'c1', aId: 'a', bId: 'b', relation: 'earlier', min: 5, max: 10, enabled: true },
+  ]
+  // A 精确 0、B ∈ [+7,+9]：排除证词后推出 t_B − t_A ∈ [7,9] ⊆ [5,10] → 冗余
+  const obs = [exactObs('o1', 'a', 0), { id: 'o2', eventId: 'b', start: isoPlus(7), end: isoPlus(9) }]
+  const entries = auditRedundancy(events, cs, obs)!
+  assert(entries[0].verdict === 'redundant', 'earlier 方向按 t_B − t_A 推导并判冗余')
+  assert(entries[0].derivedMin === 7 && entries[0].derivedMax === 9, 'earlier 推导区间 [7,9]')
+}
+
+// ---- 停用约束不参与审计，其边也不参与推导 ----
+{
+  const events: TEvent[] = [
+    { id: 'x', name: 'X' }, { id: 'y', name: 'Y' }, { id: 'z', name: 'Z' },
+  ]
+  const cs: Constraint[] = [
+    { id: 'c1', aId: 'y', bId: 'x', relation: 'later', min: 5, max: 10, enabled: true },
+    { id: 'c2', aId: 'z', bId: 'y', relation: 'later', min: 5, max: 10, enabled: true },
+    { id: 'c3', aId: 'z', bId: 'x', relation: 'later', min: 10, max: 20, enabled: false },
+    { id: 'c4', aId: 'z', bId: 'x', relation: 'later', min: 12, max: 18, enabled: true },
+  ]
+  const entries = auditRedundancy(events, cs, [])!
+  assert(entries.length === 3, '停用约束不生成审计条目')
+  assert(!entries.some((e) => e.constraintId === 'c3'), '停用约束不参与审计')
+  // c4 的推导只经过 c1+c2（c3 已停用）：t_Z − t_X ∈ [10,20]，超出 [12,18] → 必要
+  const e4 = entries.find((e) => e.constraintId === 'c4')!
+  assert(e4.derivedMin === 10 && e4.derivedMax === 20, '停用约束的边不参与推导')
+  assert(e4.verdict === 'necessary', 'c4 判为必要')
+}
+
+// ---- 矛盾系统：返回 null（暂停审计）----
+{
+  const s = buildContradictionSample()
+  assert(auditRedundancy(s.events, s.constraints, s.observations) === null, '矛盾状态暂停审计（返回 null）')
+  assert(auditRedundancy(s.events, s.constraints, []) === null, '无观测的纯相对矛盾同样暂停审计')
+}
+
+// ---- 空约束 / 全部停用：审计结果为空（而非暂停）----
+{
+  assert(auditRedundancy([], [], [])!.length === 0, '空系统审计为空')
+  const s = buildConsistentSample()
+  const allOff = s.constraints.map((c) => ({ ...c, enabled: false }))
+  const entries = auditRedundancy(s.events, allOff, s.observations)
+  assert(entries !== null && entries.length === 0, '全部停用时审计为空')
+}
+
+// ---- 可满足示例：每条启用约束一条审计条目，结论与手工推导一致 ----
+{
+  const s = buildConsistentSample()
+  const entries = auditRedundancy(s.events, s.constraints, s.observations)!
+  assert(entries.length === s.constraints.length, '可满足示例全部启用约束参与审计')
+  const byId = new Map(entries.map((e) => [e.constraintId, e]))
+  // 「恢复比告警晚 8~20」：排除后由链路推出 t_恢复 − t_告警 ∈ [10,25]，上界越出 → 必要
+  const c5 = s.constraints[4]
+  const e5 = byId.get(c5.id)!
+  assert(e5.derivedMin === 10 && e5.derivedMax === 25, '整体约束推导区间 [10,25]')
+  assert(e5.verdict === 'necessary', '整体约束判为必要')
+  // 「介入比告警晚 2~5」：排除后推导 [−12,12] → 必要
+  const e1 = byId.get(s.constraints[0].id)!
+  assert(e1.derivedMin === -12 && e1.derivedMax === 12 && e1.verdict === 'necessary', '首条约束推导区间 [−12,12]')
+  assert(entries.every((e) => e.verdict === 'necessary'), '可满足示例的证词全部为必要（无冗余）')
+}
+
 console.log(`\n${passed} passed, ${failed} failed`)
+
 if (failed > 0) process.exit(1)
